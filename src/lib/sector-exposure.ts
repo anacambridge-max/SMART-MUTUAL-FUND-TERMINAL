@@ -1,4 +1,23 @@
 import type { SectorExposure } from "@/lib/types";
 const one=(x:string):SectorExposure=>({[x]:100});
 export const DEFAULT_SECTOR_EXPOSURES:Record<string,SectorExposure>={
-"sbi-nifty-50":one("NIFTY 50"),"uti-next-50":one("NIFTY NEXT 50"),"uti-gold":{},"sbi-small-cap":one("NIFTY SMALLCAP 250"),"hdfc-mid-cap":one("NIFTY MIDCAP 150"),"quant-large-mid":{"NIFTY 50":45,"NIFTY MIDCAP 150":55},"tata-digital":one("NIFTY IT"),"sbi-healthcare":one("NIFTY PHARMA"),"quant-bfsi":{"NIFTY BANK":50,"NIFTY FINANCIAL SERVICES":35,"NIFTY PSU BANK":15},"quant-infra":{"NIFTY INFRASTRUCTURE":60,"NIFTY ENERGY":15,"NIFTY METAL":10,"NIFTY REALTY":5,"NIFTY SERVICES SECTOR":10},"sundaram-services":one("NIFTY SERVICES SECTOR"),"parag-parikh-flexi":{"NIFTY 50":65,"NIFTY IT":8,"NIFTY FINANCIAL SERVICES":8,"NIFTY FMCG":5,"NIFTY PHARMA":4,"NIFTY SERVICES SECTOR":10},"icici-bluechip":one("NIFTY 50"),"nippon-small":one("NIFTY SMALLCAP 250"),"axis-midcap":one("NIFTY MIDCAP 150"),"mirae-large-cap":one("NIFTY 50"),"hdfc-balanced-adv":{"NIFTY 50":55,"NIFTY FINANCIAL SERVICES":12,"NIFTY IT":8,"NIFTY FMCG":5,"NIFTY PHARMA":5,"NIFTY SERVICES SECTOR":15},"kotak-psu":one("NIFTY PSU BANK"),"icici-technology":one("NIFTY IT")};
+ "quant-flexi-cap":{"NIFTY 50":45,"NIFTY FINANCIAL SERVICES":15,"NIFTY IT":10,"NIFTY FMCG":8,"NIFTY PHARMA":7,"NIFTY SERVICES SECTOR":15},
+ "quant-large-mid":{"NIFTY 50":45,"NIFTY MIDCAP 150":55},
+ "quant-multi-asset":{"NIFTY 50":55,"NIFTY FINANCIAL SERVICES":15,"NIFTY IT":10,"NIFTY PHARMA":5,"NIFTY SERVICES SECTOR":15},
+ "quant-multi-cap":{"NIFTY 50":40,"NIFTY MIDCAP 150":30,"NIFTY SMALLCAP 250":30},
+ "quant-infrastructure":{"NIFTY INFRASTRUCTURE":60,"NIFTY ENERGY":15,"NIFTY METAL":10,"NIFTY REALTY":5,"NIFTY SERVICES SECTOR":10},
+ "quant-bfsi":{"NIFTY BANK":50,"NIFTY FINANCIAL SERVICES":35,"NIFTY PSU BANK":15},
+ "sbi-nifty-50":one("NIFTY 50"),
+ "sbi-healthcare":one("NIFTY PHARMA"),
+ "sbi-focused":{"NIFTY 50":60,"NIFTY FINANCIAL SERVICES":15,"NIFTY IT":10,"NIFTY PHARMA":5,"NIFTY SERVICES SECTOR":10},
+ "sbi-children":{"NIFTY 50":70,"NIFTY FINANCIAL SERVICES":10,"NIFTY IT":8,"NIFTY FMCG":5,"NIFTY PHARMA":7},
+ "bandhan-small":one("NIFTY SMALLCAP 250"),
+ "hdfc-mid-cap":one("NIFTY MIDCAP 150"),
+ "uti-next-50":one("NIFTY NEXT 50"),
+ "uti-gold":{},
+ "sbi-small-cap":one("NIFTY SMALLCAP 250"),
+ "icici-value":{"NIFTY 50":60,"NIFTY FINANCIAL SERVICES":15,"NIFTY IT":8,"NIFTY FMCG":7,"NIFTY PHARMA":5,"NIFTY SERVICES SECTOR":5},
+ "axis-elss":{"NIFTY 50":55,"NIFTY IT":15,"NIFTY FINANCIAL SERVICES":15,"NIFTY PHARMA":5,"NIFTY SERVICES SECTOR":10},
+ "sundaram-services":one("NIFTY SERVICES SECTOR"),
+ "tata-digital":one("NIFTY IT")
+};
