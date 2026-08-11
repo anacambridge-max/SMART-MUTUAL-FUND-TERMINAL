@@ -1,1 +1,5 @@
-import DashboardClient from "@/components/dashboard-client";import {buildFallbackPayload} from "@/lib/dashboard-engine";import {getLatestSnapshot,getOrCreateSettings} from "@/lib/store";export const dynamic="force-dynamic";export default async function HomePage(){const settings=await getOrCreateSettings();const latest=await getLatestSnapshot();return <DashboardClient initialPayload={latest??await buildFallbackPayload(settings)} initialSettings={settings}/>}
+import TerminalDashboard from "@/components/terminal-dashboard";
+
+export default function Page(){
+  return <TerminalDashboard/>;
+}
