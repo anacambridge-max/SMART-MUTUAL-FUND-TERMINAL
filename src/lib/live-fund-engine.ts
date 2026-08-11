@@ -16,6 +16,15 @@ const before=(p:Point[],days:number)=>{const t=Date.now()-days*86400000;return [
 const indexMove=(rows:IndexDashboardRow[],name:string)=>rows.find(x=>x.name.toUpperCase()===name.toUpperCase())?.today??0;
 const weighted=(exposure:Record<string,number>,rows:IndexDashboardRow[])=>{let sum=0,w=0,count=0;for(const [name,weight] of Object.entries(exposure||{})){if(weight<=0)continue;const row=rows.find(x=>x.name.toUpperCase()===name.toUpperCase());if(!row)continue;sum+=row.today*weight;w+=weight;count++;}return {move:w?sum/w:0,count};};
 
+async function history(code:number):Promise<Point[]>{
+  try{
+    const r=await fetch(`${BASE}/mf/${code}`,{cache:"no-store",headers:{accept:"application/json"}});
+    if(!r.ok)return [];
+    const j=await r.json() as HistoryResponse;
+    return (j.data||[]).map(x=>({at:parseDate(String(x.date)),value:Number(x.nav)})).filter((x):x is Point=>!!x.at&&Number.isFinite(x.value)).sort((a,b)=>a.at.getTime()-b.at.getTime());
+  }catch{return []}
+}
+
 async function searchFund(f:FundConfig):Promise<SearchRow|null>{
   try{
     const q=encodeURIComponent(f.schemeSearch);
@@ -31,13 +40,16 @@ async function searchFund(f:FundConfig):Promise<SearchRow|null>{
   }catch{return null}
 }
 
-async function history(code:number):Promise<Point[]>{
-  try{
-    const r=await fetch(`${BASE}/mf/${code}`,{cache:"no-store",headers:{accept:"application/json"}});
-    if(!r.ok)return [];
-    const j=await r.json() as HistoryResponse;
-    return (j.data||[]).map(x=>({at:parseDate(String(x.date)),value:Number(x.nav)})).filter((x):x is Point=>!!x.at&&Number.isFinite(x.value)).sort((a,b)=>a.at.getTime()-b.at.getTime());
-  }catch{return []}
+async function resolveFund(f:FundConfig):Promise<{row:SearchRow|null;points:Point[]}> {
+  // Configured schemeCode is authoritative. Name search is fallback only.
+  const configuredCode=Number(f.schemeCode);
+  if(Number.isFinite(configuredCode)&&configuredCode>0){
+    const points=await history(configuredCode);
+    if(points.length){return {row:{schemeCode:configuredCode,schemeName:f.name,nav:points.at(-1)?.value},points};}
+  }
+  const row=await searchFund(f);
+  if(!row)return {row:null,points:[]};
+  return {row,points:await history(Number(row.schemeCode))};
 }
 
 function metrics(p:Point[]){const latest=p.at(-1)?.value??null;const max52=Math.max(0,...p.slice(-252).map(x=>x.value));const maxAll=Math.max(0,...p.map(x=>x.value));return {drawdown52w:latest&&max52?((latest-max52)/max52)*100:null,drawdownAllTime:latest&&maxAll?((latest-maxAll)/maxAll)*100:null,return1m:pct(before(p,30)?.value??null,latest),return3m:pct(before(p,90)?.value??null,latest),return6m:pct(before(p,180)?.value??null,latest),sma20:sma(p,20),sma50:sma(p,50),sma100:sma(p,100),sma200:sma(p,200),momentum10d:pct(before(p,10)?.value??null,latest),momentum20d:pct(before(p,20)?.value??null,latest),momentum50d:pct(before(p,50)?.value??null,latest),relativeStrengthVsNifty50d:null as number|null};}
@@ -58,8 +70,8 @@ function compute(f:FundConfig,row:SearchRow,p:Point[],indices:IndexDashboardRow[
 
 export async function buildLiveFundPayload(base:DashboardPayload):Promise<DashboardPayload>{
   const settings=base.settings;const indices=base.indexDashboard;
-  const resolved=await Promise.all(settings.fundsConfig.map(async f=>{const row=await searchFund(f);const points=row?await history(Number(row.schemeCode)):[];return {fund:f,row,points};}));
+  const resolved=await Promise.all(settings.fundsConfig.map(async f=>{const live=await resolveFund(f);return {fund:f,row:live.row,points:live.points};}));
   const funds=resolved.map(x=>x.row?compute(x.fund,x.row,x.points.length?x.points:[{at:new Date(),value:x.row.nav??0}],indices,settings):fallback(x.fund));
   const topFunds=[...funds].sort((a,b)=>b.finalDailyScore-a.finalDailyScore).slice(0,5);const avoidFunds=funds.filter(f=>f.actionTag==="AVOID TODAY");const tacticalBase=topFunds.filter(f=>f.actionTag.includes("BUY")||f.actionTag==="ACCUMULATE");const tacticalAllocation=settings.tacticalTopupAmount&&tacticalBase.length?tacticalBase.map(f=>({fundId:f.id,fundName:f.name,amount:settings.tacticalTopupAmount!/tacticalBase.length,weightPercent:100/tacticalBase.length})):[];const liveCount=funds.filter(f=>f.latestNav!=null).length;
-  return {...base,funds,topFunds,avoidFunds,tacticalAllocation,sourceStatus:{...base.sourceStatus,amfi:liveCount?"ok":"unavailable",note:`No database. NSE/index data is live; ${liveCount}/${funds.length} mutual funds resolved through MFAPI search + NAV history.`}};
+  return {...base,funds,topFunds,avoidFunds,tacticalAllocation,sourceStatus:{...base.sourceStatus,amfi:liveCount?"ok":"unavailable",note:`No database. NSE/index data is live; ${liveCount}/${funds.length} mutual funds resolved through exact scheme codes + NAV history, with MFAPI name search as fallback.`}};
 }
