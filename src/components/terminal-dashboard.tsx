@@ -14,7 +14,7 @@ function Stat({label,value,sub}:{label:string;value:string;sub?:string}){return 
 export default function TerminalDashboard(){
  const [data,setData]=useState<Payload|null>(null);const [loading,setLoading]=useState(true);const [query,setQuery]=useState("");const [filter,setFilter]=useState("ALL");const [last,setLast]=useState<Date|null>(null);
  const load=async()=>{setLoading(true);try{const r=await fetch("/api/dashboard",{cache:"no-store"});if(r.ok){setData(await r.json());setLast(new Date())}}finally{setLoading(false)}};
- useEffect(()=>{load();const id=setInterval(load,900000);return()=>clearInterval(id)},[]);
+ useEffect(()=>{const timer=window.setTimeout(()=>{void load()},0);const id=setInterval(load,900000);return()=>{window.clearTimeout(timer);clearInterval(id)}},[]);
  const funds=useMemo(()=>data?.funds.filter(f=>f.name.toLowerCase().includes(query.toLowerCase())&&(filter==="ALL"||f.actionTag===filter))??[],[data,query,filter]);
  if(loading&&!data)return <main className="min-h-screen bg-[#070b12] text-white grid place-items-center"><div className="text-sm text-slate-400">Loading Smart MF Terminal…</div></main>;
  if(!data)return <main className="min-h-screen bg-[#070b12] text-white grid place-items-center"><div>Unable to load dashboard.</div></main>;
