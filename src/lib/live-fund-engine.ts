@@ -4,9 +4,14 @@ type SearchRow = { schemeCode:number; schemeName:string; nav?:number };
 type SearchResponse = SearchRow[] | { data?:SearchRow[]; status?:string };
 type HistoryPoint = { date:string; nav:string|number };
 type HistoryResponse = { data?:HistoryPoint[]; status?:string };
+type MfDataHistoryPoint = { date:string; nav:string|number };
+type MfDataResponse = { data?:MfDataHistoryPoint[]; status?:string };
+type MfDataScheme = { scheme_code?:number; scheme_name?:string; nav?:number; nav_date?:string };
+type MfDataSearchResponse = { data?:MfDataScheme[]; status?:string };
 type Point = { at:Date; value:number };
 
 const BASE="https://api.mfapi.in";
+const MFDATA="https://mfdata.in/api/v1";
 const clamp=(v:number,a=0,b=100)=>Math.max(a,Math.min(b,v));
 const round=(v:number,d=2)=>Math.round(v*10**d)/10**d;
 const pct=(a:number|null,b:number|null)=>a==null||b==null||a===0?null:((b-a)/a)*100;
@@ -16,45 +21,75 @@ const before=(p:Point[],days:number)=>{const t=Date.now()-days*86400000;return [
 const indexMove=(rows:IndexDashboardRow[],name:string)=>rows.find(x=>x.name.toUpperCase()===name.toUpperCase())?.today??0;
 const weighted=(exposure:Record<string,number>,rows:IndexDashboardRow[])=>{let sum=0,w=0,count=0;for(const [name,weight] of Object.entries(exposure||{})){if(weight<=0)continue;const row=rows.find(x=>x.name.toUpperCase()===name.toUpperCase());if(!row)continue;sum+=row.today*weight;w+=weight;count++;}return {move:w?sum/w:0,count};};
 
+async function fetchJson(url:string,ms=9000):Promise<any|null>{
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),ms);
+  try{const r=await fetch(url,{cache:"no-store",headers:{accept:"application/json"},signal:controller.signal});if(!r.ok)return null;return await r.json();}
+  catch{return null}
+  finally{clearTimeout(timer)}
+}
+
+async function historyMfapi(code:number):Promise<Point[]>{
+  const j=await fetchJson(`${BASE}/mf/${code}`) as HistoryResponse|null;
+  if(!j)return [];
+  return (j.data||[]).map(x=>({at:parseDate(String(x.date)),value:Number(x.nav)})).filter((x):x is Point=>!!x.at&&Number.isFinite(x.value)).sort((a,b)=>a.at.getTime()-b.at.getTime());
+}
+
+async function historyMfdata(code:number):Promise<Point[]>{
+  const j=await fetchJson(`${MFDATA}/schemes/${code}/nav/history?limit=252`) as MfDataResponse|null;
+  if(!j)return [];
+  return (j.data||[]).map(x=>({at:parseDate(String(x.date)),value:Number(x.nav)})).filter((x):x is Point=>!!x.at&&Number.isFinite(x.value)).sort((a,b)=>a.at.getTime()-b.at.getTime());
+}
+
 async function history(code:number):Promise<Point[]>{
-  try{
-    const r=await fetch(`${BASE}/mf/${code}`,{cache:"no-store",headers:{accept:"application/json"}});
-    if(!r.ok)return [];
-    const j=await r.json() as HistoryResponse;
-    return (j.data||[]).map(x=>({at:parseDate(String(x.date)),value:Number(x.nav)})).filter((x):x is Point=>!!x.at&&Number.isFinite(x.value)).sort((a,b)=>a.at.getTime()-b.at.getTime());
-  }catch{return []}
+  const primary=await historyMfapi(code);
+  if(primary.length>=20)return primary;
+  const secondary=await historyMfdata(code);
+  if(secondary.length)return secondary;
+  return primary;
+}
+
+async function latestMfapi(code:number):Promise<SearchRow|null>{
+  const j=await fetchJson(`${BASE}/mf/${code}/latest`) as any;
+  const item=j?.data?.[0]||j?.data||null;
+  const nav=Number(item?.nav);
+  return Number.isFinite(nav)?{schemeCode:code,schemeName:String(j?.meta?.scheme_name||item?.schemeName||code),nav}:null;
 }
 
 async function searchFund(f:FundConfig):Promise<SearchRow|null>{
-  try{
-    const q=encodeURIComponent(f.schemeSearch);
-    const r=await fetch(`${BASE}/mf/search?q=${q}`,{cache:"no-store",headers:{accept:"application/json"}});
-    if(!r.ok)return null;
-    const raw=await r.json() as SearchResponse;
-    const rows=Array.isArray(raw)?raw:(raw.data||[]);
-    const tokens=f.schemeSearch.toLowerCase().split(/\s+/).filter(Boolean);
-    const candidates=rows.filter(x=>x?.schemeName&&Number.isFinite(Number(x.schemeCode)));
-    const directGrowth=candidates.filter(x=>/direct/i.test(x.schemeName)&&/growth/i.test(x.schemeName));
-    const direct=candidates.filter(x=>/direct/i.test(x.schemeName));
-    return directGrowth.find(x=>tokens.every(t=>x.schemeName.toLowerCase().includes(t)))||direct.find(x=>tokens.every(t=>x.schemeName.toLowerCase().includes(t)))||candidates.find(x=>tokens.every(t=>x.schemeName.toLowerCase().includes(t)))||directGrowth[0]||direct[0]||candidates[0]||null;
-  }catch{return null}
+  const q=encodeURIComponent(f.schemeSearch);
+  const raw=await fetchJson(`${BASE}/mf/search?q=${q}`) as SearchResponse|null;
+  const rows=raw?(Array.isArray(raw)?raw:(raw.data||[])):[];
+  const tokens=f.schemeSearch.toLowerCase().split(/\s+/).filter(Boolean);
+  const candidates=rows.filter(x=>x?.schemeName&&Number.isFinite(Number(x.schemeCode)));
+  const directGrowth=candidates.filter(x=>/direct/i.test(x.schemeName)&&/growth/i.test(x.schemeName));
+  const direct=candidates.filter(x=>/direct/i.test(x.schemeName));
+  const exact=directGrowth.find(x=>tokens.every(t=>x.schemeName.toLowerCase().includes(t)))||direct.find(x=>tokens.every(t=>x.schemeName.toLowerCase().includes(t)))||candidates.find(x=>tokens.every(t=>x.schemeName.toLowerCase().includes(t)));
+  if(exact)return exact;
+  const mf=await fetchJson(`${MFDATA}/search?q=${q}`) as MfDataSearchResponse|null;
+  const mrows=mf?.data||[];
+  const mdirect=mrows.find(x=>Number.isFinite(Number(x.scheme_code))&&/direct/i.test(String(x.scheme_name))&&/growth/i.test(String(x.scheme_name)))||mrows.find(x=>Number.isFinite(Number(x.scheme_code)));
+  return mdirect?{schemeCode:Number(mdirect.scheme_code),schemeName:String(mdirect.scheme_name||f.name),nav:Number(mdirect.nav)}:null;
 }
 
 async function resolveFund(f:FundConfig):Promise<{row:SearchRow|null;points:Point[]}> {
-  // Configured schemeCode is authoritative. Name search is fallback only.
   const configuredCode=Number(f.schemeCode);
   if(Number.isFinite(configuredCode)&&configuredCode>0){
     const points=await history(configuredCode);
     if(points.length){return {row:{schemeCode:configuredCode,schemeName:f.name,nav:points.at(-1)?.value},points};}
+    const latest=await latestMfapi(configuredCode);
+    if(latest)return {row:{schemeCode:configuredCode,schemeName:f.name,nav:latest.nav},points:[]};
   }
   const row=await searchFund(f);
   if(!row)return {row:null,points:[]};
-  return {row,points:await history(Number(row.schemeCode))};
+  const points=await history(Number(row.schemeCode));
+  if(points.length)return {row:{...row,nav:points.at(-1)?.value??row.nav},points};
+  return {row,points:[]};
 }
 
 function metrics(p:Point[]){const latest=p.at(-1)?.value??null;const max52=Math.max(0,...p.slice(-252).map(x=>x.value));const maxAll=Math.max(0,...p.map(x=>x.value));return {drawdown52w:latest&&max52?((latest-max52)/max52)*100:null,drawdownAllTime:latest&&maxAll?((latest-maxAll)/maxAll)*100:null,return1m:pct(before(p,30)?.value??null,latest),return3m:pct(before(p,90)?.value??null,latest),return6m:pct(before(p,180)?.value??null,latest),sma20:sma(p,20),sma50:sma(p,50),sma100:sma(p,100),sma200:sma(p,200),momentum10d:pct(before(p,10)?.value??null,latest),momentum20d:pct(before(p,20)?.value??null,latest),momentum50d:pct(before(p,50)?.value??null,latest),relativeStrengthVsNifty50d:null as number|null};}
 
-function fallback(f:FundConfig):FundComputed{return {id:f.id,name:f.name,schemeCode:f.schemeCode??null,proxyIndex:f.proxyIndex,latestNav:null,latestNavDate:null,mappedMove:0,weightedSectorMove:0,sectorOpportunityScore:50,matchedSectorCount:0,strategicScore:50,navOpportunityScore:50,finalDailyScore:50,classification:"Healthy Correction",actionTag:"SIP",reason:"Live mutual-fund NAV data is temporarily unavailable.",expectedImpactNote:"Wait for the next successful data refresh.",metrics:{drawdown52w:null,drawdownAllTime:null,return1m:null,return3m:null,return6m:null,sma20:null,sma50:null,sma100:null,sma200:null,momentum10d:null,momentum20d:null,momentum50d:null,relativeStrengthVsNifty50d:null}};}
+function fallback(f:FundConfig):FundComputed{return {id:f.id,name:f.name,schemeCode:f.schemeCode??null,proxyIndex:f.proxyIndex,latestNav:null,latestNavDate:null,mappedMove:0,weightedSectorMove:0,sectorOpportunityScore:50,matchedSectorCount:0,strategicScore:50,navOpportunityScore:50,finalDailyScore:50,classification:"Data Pending",actionTag:"SIP",reason:"NAV provider did not return data for this scheme yet.",expectedImpactNote:"Retry on the next refresh.",metrics:{drawdown52w:null,drawdownAllTime:null,return1m:null,return3m:null,return6m:null,sma20:null,sma50:null,sma100:null,sma200:null,momentum10d:null,momentum20d:null,momentum50d:null,relativeStrengthVsNifty50d:null}};}
 
 function compute(f:FundConfig,row:SearchRow,p:Point[],indices:IndexDashboardRow[],settings:SettingsPayload):FundComputed{
   const latest=p.at(-1)?.value??row.nav??null;const m=metrics(p);const sector=weighted(f.sectorExposure,indices);const proxy=indexMove(indices,f.proxyIndex);
@@ -73,5 +108,5 @@ export async function buildLiveFundPayload(base:DashboardPayload):Promise<Dashbo
   const resolved=await Promise.all(settings.fundsConfig.map(async f=>{const live=await resolveFund(f);return {fund:f,row:live.row,points:live.points};}));
   const funds=resolved.map(x=>x.row?compute(x.fund,x.row,x.points.length?x.points:[{at:new Date(),value:x.row.nav??0}],indices,settings):fallback(x.fund));
   const topFunds=[...funds].sort((a,b)=>b.finalDailyScore-a.finalDailyScore).slice(0,5);const avoidFunds=funds.filter(f=>f.actionTag==="AVOID TODAY");const tacticalBase=topFunds.filter(f=>f.actionTag.includes("BUY")||f.actionTag==="ACCUMULATE");const tacticalAllocation=settings.tacticalTopupAmount&&tacticalBase.length?tacticalBase.map(f=>({fundId:f.id,fundName:f.name,amount:settings.tacticalTopupAmount!/tacticalBase.length,weightPercent:100/tacticalBase.length})):[];const liveCount=funds.filter(f=>f.latestNav!=null).length;
-  return {...base,funds,topFunds,avoidFunds,tacticalAllocation,sourceStatus:{...base.sourceStatus,amfi:liveCount?"ok":"unavailable",note:`No database. NSE/index data is live; ${liveCount}/${funds.length} mutual funds resolved through exact scheme codes + NAV history, with MFAPI name search as fallback.`}};
+  return {...base,funds,topFunds,avoidFunds,tacticalAllocation,sourceStatus:{...base.sourceStatus,amfi:liveCount?"ok":"unavailable",note:`NSE/index data is live. ${liveCount}/${funds.length} mutual funds resolved using MFAPI, with MFData as the NAV-history/search fallback.`}};
 }
