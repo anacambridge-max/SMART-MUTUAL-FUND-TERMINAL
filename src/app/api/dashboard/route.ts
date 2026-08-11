@@ -1,1 +1,13 @@
-import {buildFallbackPayload} from "@/lib/dashboard-engine";import {getLatestSnapshot,getOrCreateSettings} from "@/lib/store";import {NextResponse} from "next/server";export const runtime="nodejs";export const dynamic="force-dynamic";export async function GET(){const settings=await getOrCreateSettings();const latest=await getLatestSnapshot();return NextResponse.json({ok:true,payload:latest??await buildFallbackPayload(settings)})}
+import {buildFallbackPayload} from "@/lib/dashboard-engine";
+import {DEFAULT_SETTINGS} from "@/lib/default-config";
+import {NextResponse} from "next/server";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  // Stateless deployment: no database is required.
+  // The dashboard starts from the built-in configuration and fallback engine.
+  const payload = await buildFallbackPayload(DEFAULT_SETTINGS);
+  return NextResponse.json({ok: true, payload});
+}
